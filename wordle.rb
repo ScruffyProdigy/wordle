@@ -43,6 +43,13 @@ class Game
     self
   end
 
+  def trim(**guesses)
+    guesses.each do |guess, result|
+      trim!(guess.to_s, result)
+    end
+    self
+  end
+
   def trim!(guess, result)
     @solutions.select! {|solution| compare(guess.downcase, solution) == result.upcase }
     self
@@ -57,9 +64,10 @@ class Game
     results
   end
 
-  def all_guesses
+  def all_guesses(guesses=nil)
+    guesses ||= @@all_guesses
     Enumerator.new do |enum|
-      @@all_guesses.each do |guess|
+      guesses.each do |guess|
         results = check_guess(guess)
 
         next if results.length <= 1 && results["G" * guess.length] == 0
@@ -74,27 +82,74 @@ class Game
   end
 
   def method_average result_set
-    total = result_set.sum {|result, count| result == "GGGGG" ? 0 : count * count}
+    total = result_set.sum {|result, count| result.each_char.all? {|c| c == "G"} ? 0 : count * count}
     Math.sqrt(total / result_set.length)
   end
 
-  def guess_results(&evaluator)
+  def guess_list(value=1.0)
+    guess_results.select{|a, b| b <= value}.map{|a, b| a}
+  end
+
+  def guess_results(guesses=nil, &evaluator)
     evaluator ||= method(:method_average)
     Enumerator.new do |enum|
-      all_guesses.each do |guess, results|
+      all_guesses(guesses).each do |guess, results|
         enum.yield guess, evaluator.call(results)
       end
     end
   end
 
-  def get_next(display=10, &evaluator)
+  def get_next(guesses=nil, display=10, &evaluator)
     evaluator ||= method(:method_average)
-    guess_results(&evaluator).min_by(display) {|guess, count| count}
+    guess_results(guesses, &evaluator).min_by(display) {|guess, count| count}
   end
 
-  def do
-    get_next.each {|x| puts x}
+  def inspect
+    "#{@solutions.length}: #{@solutions.join(', ')}"
   end
 end
 
-g = Game.new
+class Cluster
+  def initialize count
+    @games = []
+    count.times do
+      @games << Game.new
+    end
+  end
+
+  def reset
+    @games.each &:reset
+    self
+  end
+
+  def trim!(guess, *results)
+    raise "wrong number of results" if @games.length != results.length
+    @games.each.with_index do |game, index|
+      game.trim!(guess, results[index])
+    end
+    self
+  end
+
+  def trim(**guesses)
+    guesses.each do |guess, results|
+      trim!(guess.to_s, *results)
+    end
+    self
+  end
+
+  def [](index)
+    @games[index]
+  end
+
+  def inspect
+    @games.map.with_index {|g, i| "#{i} — #{g.inspect}"}.join("\n")
+  end
+
+  def map &block
+    if block
+      @games.map &block
+    else
+      @games
+    end
+  end
+end
